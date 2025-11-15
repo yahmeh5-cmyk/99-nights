@@ -1,50 +1,67 @@
 -- ================================================================= --
---                   SCRIPT ESP DE BAÚS (EXECUTOR)                   --
+--         SCRIPT ESP DE BAÚS COM INTERFACE PARA EXECUTOR            --
+--                por [Seu Nome/Nome do Grupo]                       --
 -- ================================================================= --
+--[[
+    INSTRUÇÕES:
+    1. Copie e cole este script no seu executor.
+    2. Execute enquanto estiver no jogo "99 Nights in the Forest".
+    3. Uma interface vai aparecer. Use o botão para ligar/desligar o ESP.
+    4. Se nenhum baú aparecer, EDITE A LISTA 'NOMES_DOS_BAUS' ABAIXO com o nome correto do baú no jogo.
+       (Use uma ferramenta como "Dark Dex" ou "Remote Spy" para encontrar o nome).
+]]
 
--- || CONFIGURAÇÃO || --
-
--- Adicione ou remova nomes da lista abaixo. O script vai procurar por QUALQUER parte/modelo com esses nomes.
--- Você pode precisar descobrir o nome exato dos baús no jogo. Nomes comuns são: "Chest", "Bau", "Treasure", "Crate", "Loot".
+-- || CONFIGURAÇÃO (EDITAR SE NECESSÁRIO) || --
 local NOMES_DOS_BAUS = {
-    "Chest", -- Nome mais comum em jogos em inglês
-    "Bau",
-    "Treasure Chest",
-    "Crate",
-    "SupplyCrate"
+    "Chest",          -- Nome genérico em inglês
+    "Bau",            -- Nome genérico em português
+    "Treasure Chest", -- Outro nome comum
+    "SupplyCrate",    -- Comum em jogos de sobrevivência
+    "Crate"
 }
 
--- Mude para 'false' para desligar o ESP
-local ESP_ATIVADO = true
+local COR_DO_TEXTO = Color3.fromRGB(255, 230, 100) -- Dourado
 
--- Cor do texto do ESP (em RGB, 0 a 255)
-local COR_DO_TEXTO = Color3.fromRGB(255, 255, 0) -- Amarelo
+-- ================================================================= --
+-- ||     INTERFACE GRÁFICA (ORION LIBRARY) E CÓDIGO DO ESP     || --
+-- ================================================================= --
 
--- || NÃO MEXA ABAIXO DISSO || --
+-- Carrega a biblioteca da interface
+local OrionLib = loadstring(game:HttpGet(('https://raw.githubusercontent.com/shlexware/Orion/main/source')))()
 
--- Serviços e Variáveis
-local Players = game:GetService("Players")
+-- Variáveis Globais
+local ESP_Ativado = true -- O ESP começa ligado por padrão
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("workspace")
-local CoreGui = game:GetService("CoreGui") -- Usamos CoreGui para evitar que scripts do jogo interfiram
-
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
-local Camera = Workspace.CurrentCamera
 
+-- Container para os ESPs, para manter tudo organizado
 local ESP_Container = Instance.new("Folder", CoreGui)
-ESP_Container.Name = "ESP_Container_" .. math.random(1, 1000)
+ESP_Container.Name = "Baú_ESP_Container"
 
-local BaúsAtivos = {}
+local BaúsAtivos = {} -- Tabela para rastrear os baús e suas GUIs
 
--- Função para criar a interface do ESP
+-- Função para encontrar a parte principal do baú para anexar o ESP
+local function findTargetPart(objeto)
+    if objeto:IsA("BasePart") then return objeto end
+    if objeto:IsA("Model") then
+        return objeto.PrimaryPart or objeto:FindFirstChildOfClass("BasePart") or objeto:FindFirstChildOfClass("MeshPart")
+    end
+    return nil
+end
+
+-- Função que cria o visual do ESP (BillboardGui)
 local function criarESP(objeto)
-    if not objeto or BaúsAtivos[objeto] then return end
+    local part = findTargetPart(objeto)
+    if not part or BaúsAtivos[part] then return end
 
     local BillboardGui = Instance.new("BillboardGui")
     BillboardGui.Name = "ESP_GUI"
     BillboardGui.AlwaysOnTop = true
     BillboardGui.Size = UDim2.new(0, 200, 0, 50)
-    BillboardGui.Adornee = objeto
+    BillboardGui.Adornee = part
     BillboardGui.Parent = ESP_Container
 
     local TextLabel = Instance.new("TextLabel")
@@ -56,71 +73,84 @@ local function criarESP(objeto)
     TextLabel.Font = Enum.Font.SourceSansBold
     TextLabel.TextSize = 18
     TextLabel.TextColor3 = COR_DO_TEXTO
-    TextLabel.TextStrokeTransparency = 0.5
-    
-    BaúsAtivos[objeto] = BillboardGui
+    TextLabel.TextStrokeTransparency = 0.4
+    TextLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+
+    BaúsAtivos[part] = BillboardGui
 end
 
--- Função para atualizar o texto (distância) e verificar validade
-local function atualizarESPs()
-    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then return end
-    
-    local HRP = LocalPlayer.Character.HumanoidRootPart
-
-    for objeto, gui in pairs(BaúsAtivos) do
-        -- Se o objeto foi destruído, remove o ESP
-        if not objeto or not objeto.Parent then
-            gui:Destroy()
-            BaúsAtivos[objeto] = nil
-        else
-            -- Calcula a distância e atualiza o texto
-            local distancia = (HRP.Position - objeto.Position).Magnitude
-            gui.InfoLabel.Text = string.format("%s\n[%.0fm]", objeto.Name, distancia)
-        end
-    end
-end
-
--- Função para procurar por baús
+-- Função que procura por novos baús no mapa
 local function procurarBaús()
-    for _, objeto in pairs(Workspace:GetDescendants()) do
+    for _, objeto in ipairs(Workspace:GetDescendants()) do
         if table.find(NOMES_DOS_BAUS, objeto.Name) then
-            -- Tenta usar a parte principal se for um modelo, senão usa o próprio objeto
-            local parteParaAdornar = objeto:IsA("Model") and (objeto.PrimaryPart or objeto:FindFirstChildOfClass("BasePart")) or objeto
-            if parteParaAdornar then
-                criarESP(parteParaAdornar)
-            end
+            criarESP(objeto)
         end
     end
 end
 
--- Loop principal
+-- Loop principal que roda a cada frame para atualizar as informações
 RunService.RenderStepped:Connect(function()
-    if not ESP_ATIVADO then 
-        if ESP_Container.Parent then ESP_Container.Parent = nil end -- Desativa o ESP
-        return 
-    else
-        if not ESP_Container.Parent then ESP_Container.Parent = CoreGui end -- Reativa o ESP
-    end
+    if not ESP_Ativado then return end -- Se estiver desativado, não faz nada
+
+    local character = LocalPlayer.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
     
-    atualizarESPs()
-end)
+    local HRP_Position = character.HumanoidRootPart.Position
 
--- Procura baús a cada 5 segundos para encontrar novos que possam ter aparecido
-task.spawn(function()
-    while ESP_ATIVADO and task.wait(5) do
-        pcall(procurarBaús)
+    for part, gui in pairs(BaúsAtivos) do
+        -- Limpeza: remove o ESP se o baú for destruído
+        if not part or not part.Parent or not gui or not gui.Parent then
+            if gui then gui:Destroy() end
+            BaúsAtivos[part] = nil
+        else
+            -- Atualiza o texto com a distância
+            local distancia = (HRP_Position - part.Position).Magnitude
+            gui.InfoLabel.Text = string.format("%s\n[%.0fm]", part.Name, distancia)
+        end
     end
 end)
 
--- Execução inicial
-pcall(procurarBaús)
-print("ESP de Baús carregado. Se nada aparecer, verifique a lista 'NOMES_DOS_BAUS' no script.")
-
--- Limpeza ao destruir o script (útil em alguns executores)
-if getgenv then
-    getgenv().ESP_Container = ESP_Container
-end
-script.Destroying:Connect(function()
-    ESP_Container:Destroy()
-    ESP_ATIVADO = false
+-- Loop secundário que procura por novos baús a cada 5 segundos
+task.spawn(function()
+    while task.wait(5) do
+        if ESP_Ativado then
+            pcall(procurarBaús)
+        end
+    end
 end)
+
+-- Criação da Interface
+local Window = OrionLib:MakeWindow({
+    Name = "99 Nights Dev Tool",
+    HidePremium = true,
+    SaveConfig = true,
+    ConfigFolder = "Orion_Config_99Nights"
+})
+
+local Tab = Window:MakeTab({
+    Name = "ESP",
+    Icon = "rbxassetid://4483345998", -- Ícone de um olho
+    PremiumOnly = false
+})
+
+Tab:AddToggle({
+    Name = "ESP de Baús",
+    Default = true, -- O botão começa ligado
+    Callback = function(Value)
+        -- Esta função é chamada sempre que o botão é clicado
+        ESP_Ativado = Value
+        ESP_Container.Enabled = Value
+        
+        if ESP_Ativado then
+            print("ESP de Baús ATIVADO")
+            pcall(procurarBaús) -- Procura baús assim que é ativado
+        else
+            print("ESP de Baús DESATIVADO")
+        end
+    end
+})
+
+-- Execução Inicial
+pcall(procurarBaús)
+OrionLib:Init()
+print("Interface carregada! Use o menu para controlar o ESP.")
